@@ -2,15 +2,19 @@
 
 using ftTime::Clock;
 
-static float curTime, lastTime;
-static float realFps;
+static double curTime, lastTime;
+static int nbFrames;
+static double realFps;
+static double msPerFrame;
 static double initT;
 
+static double mcFps = 60.0;
+
 namespace fountain {
-Clock mainClock(60.0f);
+Clock mainClock(mcFps);
 }
 
-#ifdef linux
+#ifdef __linux
 
 // Linux
 #ifndef _BSD_SOURCE
@@ -19,7 +23,7 @@ Clock mainClock(60.0f);
 #include <sys/time.h>
 #include <unistd.h>
 
-const float littleSleepTime = 0.000001f;
+const double littleSleepTime = 0.000001;
 
 inline void littleSleep()
 {
@@ -30,14 +34,14 @@ void floatTimeInit()
 {
 	static struct timeval now;
 	gettimeofday(&now, NULL);
-	initT = (1000000 * now.tv_sec + now.tv_usec) / 1000000.0;
+	initT = (double)now.tv_sec + (double)now.tv_usec / 1000000.0;
 }
 
-inline float floatTime()
+inline double floatTime()
 {
 	static struct timeval now;
 	gettimeofday(&now, NULL);
-	return (float)(((1000000 * now.tv_sec + now.tv_usec) / 1000000.0) - initT);
+	return (double)now.tv_sec + (double)now.tv_usec / 1000000.0 - initT;
 }
 
 // Linux end
@@ -48,8 +52,7 @@ inline float floatTime()
 #include <time.h>
 #include <windows.h>
 
-const float littleSleepTime = 0.001f;
-static double freq = 1.0;
+const double littleSleepTime = 0.001;
 
 inline void littleSleep()
 {
@@ -61,15 +64,15 @@ void floatTimeInit()
 	LARGE_INTEGER tickPerSecond, tick;
 	QueryPerformanceFrequency(&tickPerSecond);
 	QueryPerformanceCounter(&tick);
-	freq = 1.0 / (double)tickPerSecond.QuadPart;
-	initT = (double)tick.QuadPart * freq;
+	initT = (double)tick.QuadPart / (double)tickPerSecond.QuadPart;
 }
 
-inline float floatTime()
+inline double floatTime()
 {
-	LARGE_INTEGER tick;
+	LARGE_INTEGER tickPerSecond, tick;
+	QueryPerformanceFrequency(&tickPerSecond);
 	QueryPerformanceCounter(&tick);
-	return (float)((double)tick.QuadPart * freq - initT);
+	return (double)tick.QuadPart / (double)tickPerSecond.QuadPart - initT;
 }
 
 // Win32 end
@@ -79,19 +82,24 @@ bool ftTime::init()
 {
 	floatTimeInit();
 	fountain::mainClock.init();
-	curTime = lastTime = 0.0f;
-	realFps = 0.0f;
+	curTime = lastTime = 0.0;
+	nbFrames = 0;
+	realFps = 0.0;
 	return true;
 }
 
 void ftTime::initPerFrame()
 {
-	if (fountain::mainClock.getFrameCount() % 128 == 0) {
-		curTime = fountain::mainClock.getTotalT();
-		float deltaTime = curTime - lastTime;
-		if (deltaTime > littleSleepTime)
-			realFps = 128.0f / deltaTime;
+	curTime = fountain::mainClock.getTotalT();
+	nbFrames++;
+	double deltaTime = curTime - lastTime;
+	if (deltaTime >= 1.0) {
+		realFps = nbFrames / deltaTime;
+		mcFps += (60.0 - realFps) * 0.3;
+		fountain::mainClock.setFps(mcFps);
+		msPerFrame = deltaTime * 1000.0 / nbFrames;
 		lastTime = curTime;
+		nbFrames = 0;
 	}
 }
 
@@ -100,38 +108,56 @@ void ftTime::close()
 {
 }
 
-float ftTime::getFps()
+double ftTime::getFps()
 {
 	return realFps;
 }
 
-Clock::Clock(float fps)
+double ftTime::getMsPerFrame()
+{
+	return msPerFrame;
+}
+
+double ftTime::getInitTime()
+{
+	return initT;
+}
+
+Clock::Clock(double fps)
 {
 	setFps(fps);
-	isPaused = true;
 	slave = false;
+	isPaused = true;
+	deltaT = 0.0;
+	timeScale = 1.0;
+	totalT = 0.0;
+	frameCount = 0;
 }
 
 Clock::Clock(Clock *mClock)
 {
 	masterClock = mClock;
-	secondPerFrame = 0.0f;
-	perFrameWaitTime = 0.0f;
-	isPaused = true;
+	secondPerFrame = 0.0;
+	perFrameWaitTime = 0.0;
 	slave = true;
+	isPaused = true;
+	deltaT = 0.0;
+	timeScale = 1.0;
+	totalT = 0.0;
+	frameCount = 0;
 }
 
 void Clock::init()
 {
 	firstT = beginT = continueT = pauseT = getCurTime();
-	deltaT = 0.0f;
-	timeScale = 1.0f;
-	totalT = 0.0f;
+	deltaT = 0.0;
+	timeScale = 1.0;
+	totalT = 0.0;
 	frameCount = 0;
 	isPaused = false;
 }
 
-float Clock::getCurTime()
+double Clock::getCurTime()
 {
 	if (slave) return masterClock->getTotalT();
 	else return floatTime();
@@ -145,10 +171,10 @@ void Clock::tick()
 		endT = getCurTime();
 	}
 	if (isPaused == true)
-		deltaT = 0.0f;
+		deltaT = 0.0;
 	else {
 		//TODO: use a better way to solve debug deltaT
-		if (secondPerFrame > 0.0f && deltaT > secondPerFrame * 2.0f) {
+		if (secondPerFrame > 0.0 && deltaT > secondPerFrame * 2.0) {
 			deltaT = secondPerFrame;
 		}
 		deltaT *= timeScale;
@@ -158,12 +184,12 @@ void Clock::tick()
 	frameCount++;
 }
 
-float Clock::getDeltaT()
+double Clock::getDeltaT()
 {
 	return deltaT;
 }
 
-float Clock::getTotalT()
+double Clock::getTotalT()
 {
 	return totalT;
 }
@@ -173,17 +199,17 @@ long long Clock::getFrameCount()
 	return frameCount;
 }
 
-float Clock::secondsFromInit()
+double Clock::secondsFromInit()
 {
 	return getCurTime() - firstT;
 }
 
-float Clock::secondsFromPause()
+double Clock::secondsFromPause()
 {
 	return getCurTime() - pauseT;
 }
 
-float Clock::secondsFromContinue()
+double Clock::secondsFromContinue()
 {
 	return getCurTime() - continueT;
 }
@@ -205,15 +231,16 @@ bool Clock::isPause()
 	return isPaused;
 }
 
-void Clock::setFps(float fps)
+void Clock::setFps(double fps)
 {
 	if (!slave) {
-		if (fps == 0.0f)
-			secondPerFrame = 0.0f;
+		if (fps == 0.0)
+			secondPerFrame = 0.0;
 		else
-			secondPerFrame = 1.0f / fps;
-		perFrameWaitTime = secondPerFrame - littleSleepTime * 0.5f;
+			secondPerFrame = 1.0 / fps;
+		perFrameWaitTime = secondPerFrame - littleSleepTime * 0.5;
 	} else {
 		masterClock->setFps(fps);
 	}
 }
+

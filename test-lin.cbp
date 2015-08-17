@@ -13,6 +13,7 @@
 				<Option compiler="gcc" />
 				<Compiler>
 					<Add option="-g" />
+					<Add option="-DDEBUG" />
 				</Compiler>
 				<Linker>
 					<Add directory="bin/Debug" />
@@ -35,6 +36,7 @@
 			</Target>
 		</Build>
 		<Compiler>
+			<Add option="-std=c++11" />
 			<Add directory="include" />
 			<Add directory="." />
 			<Add directory="/usr/include/freetype2" />
@@ -49,6 +51,8 @@
 			<Add library="Box2D" />
 			<Add library="openal" />
 		</Linker>
+		<Unit filename="STG.cpp" />
+		<Unit filename="STG.h" />
 		<Unit filename="main.cpp" />
 		<Unit filename="testscene.cpp" />
 		<Unit filename="testscene.h" />

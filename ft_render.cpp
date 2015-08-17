@@ -1,5 +1,6 @@
 //TODO: replace "//GLSL exp" with better solution
 //TODO: provide RTT(render to texture) function
+#include <fountain/ft_debug.h>
 #include <fountain/ft_render.h>
 #include <fountain/ft_data.h>
 #include <fountain/ft_math.h>
@@ -15,6 +16,7 @@ using ftRender::SubImage;
 using ftRender::SubImagePool;
 using ftRender::Camera;
 using ftRender::ShaderProgram;
+using ftRender::Bitmap;
 
 static bool alive = false;
 
@@ -27,6 +29,8 @@ static GLfloat circle32[32 * 2];
 static GLfloat circle128[128 * 2];
 
 static GLfloat defaultTexCoor[] = {0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
+
+static ShaderProgram basicShader;
 
 //TODO: make this transform more simple
 GLuint FT2InternalFormat[FT_FORMAT_MAX] = {GL_RGBA, GL_RGB, GL_RGBA, GL_RGB,
@@ -44,24 +48,60 @@ static float globalR, globalG, globalB, globalA;
 static ShaderProgram *currentShader = NULL;
 static Camera *currentCamera = NULL;
 
+//test
+/*
+static GLuint msaaTex;
+static GLuint msaaFbo;
+*/
+
+static const char *basicVS = {
+	"void main()"
+	"{"
+	"gl_TexCoord[0] = gl_MultiTexCoord0;"
+	"gl_FrontColor = gl_Color;"
+	"gl_Position = ftransform();"
+	"}"
+};
+
+static const char *basicFS = {
+	"uniform sampler2D tex;"
+	"uniform float useTex;"
+
+	"void main( void ) {"
+	"vec4 colorx = gl_Color;"
+	"if (useTex == 1.0) {"
+	"	colorx *= texture2D(tex, gl_TexCoord[0].st);"
+	"}"
+	"gl_FragColor = colorx;"
+	"}"
+};
+
+bool GLinit();
+void initCircleData(GLfloat* , int);
+inline void enableTexture2D();
+inline void disableTexture2D();
+inline void bindTexture(int);
+inline void drawFloat2(const GLfloat*, int, GLuint);
 
 bool GLinit()
 {
 	//TODO: complete the OpenGL init state checking
 	GLenum err = glewInit();
 	if (GLEW_OK != err) {
-		std::printf("GLEW init failed!\n");
+		FT_OUT("GLEW init failed!\n");
 		return false;
 	} else {
-		std::printf("GLEW Version: %s\n", glewGetString(GLEW_VERSION));
-		std::printf("OpenGL Version: %s\n", glGetString(GL_VERSION));
+		FT_OUT("GLEW Version: %s\n", glewGetString(GLEW_VERSION));
+		FT_OUT("OpenGL Version: %s\n", glGetString(GL_VERSION));
 	}
 	if (GLEW_VERSION_2_0) {
-		std::printf("GLSL Version: %s\n",
-		            glGetString(GL_SHADING_LANGUAGE_VERSION));
-		std::printf("Shader supported!\n");
+		FT_OUT("GLSL Version: %s\n",
+		       glGetString(GL_SHADING_LANGUAGE_VERSION));
+		FT_OUT("Shader supported!\n");
+		basicShader.init(basicVS, basicFS);
+		basicShader.use();
 	} else {
-		std::printf("Shader unsupported -_-|||\n");
+		FT_OUT("Shader unsupported -_-|||\n");
 	}
 	return true;
 }
@@ -70,8 +110,9 @@ void initCircleData(GLfloat *v, int n)
 {
 	float d = 3.14159f * 2.0f / n;
 	for (int i = 0; i < n; i++) {
-		v[i * 2] = std::sin(d * i);
-		v[i * 2 + 1] = std::cos(d * i);
+		float degree = d * (n - i - 1);
+		v[i * 2] = std::sin(degree);
+		v[i * 2 + 1] = std::cos(degree);
 	}
 }
 
@@ -89,6 +130,19 @@ bool ftRender::init()
 	globalA = 1.0f;
 
 	glEnable(GL_ALPHA_TEST);
+	glAlphaFunc(GL_GREATER, 0.1f);
+	glEnable(GL_TEXTURE_CUBE_MAP);
+	glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+
+	//test
+	/*
+	glGenTextures(1, &msaaTex);
+	glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, msaaTex);
+	glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 32, GL_RGBA8, 800, 600, GL_TRUE);
+	glGenFramebuffers(1, &msaaFbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, msaaFbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, msaaTex, 0);
+	*/
 
 	//TODO: find out how to use VAO
 	//glGenVertexArrays(1, &VertexArrayID);
@@ -105,6 +159,23 @@ void ftRender::close()
 bool ftRender::isAlive()
 {
 	return alive;
+}
+
+void ftRender::frameBegin()
+{
+	//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, msaaFbo);
+}
+
+void ftRender::frameEnd()
+{
+	/*
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);   // Make sure no FBO is set as the draw framebuffer
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, msaaFbo); // Make sure your multisampled FBO is the read framebuffer
+	glDrawBuffer(GL_BACK);                       // Set the back buffer as the draw buffer
+	glBlitFramebuffer(0, 0, 800, 600, 800, 600, 800, 600, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+	*/
 }
 
 //some OpenGL functions
@@ -124,9 +195,10 @@ inline void disableTexture2D()
 
 inline void bindTexture(int id)
 {
+	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, id);
 	if (currentShader != NULL)
-		currentShader->setUniform("tex", id);
+		currentShader->setUniform("tex", 0);
 }
 
 inline void drawFloat2(const GLfloat *v, int n, GLuint glType)
@@ -145,6 +217,25 @@ void ftRender::clearColorDepthBuffer()
 void ftRender::transformBegin()
 {
 	glPushMatrix();
+}
+
+void ftRender::transformBegin(float x, float y, float degree, float scale, ftColor c)
+{
+	ftRender::useColor(c);
+	ftRender::transformBegin();
+	ftRender::ftTranslate(x, y);
+	ftRender::ftRotate(0, 0, degree);
+	ftRender::ftScale(scale);
+}
+
+void ftRender::transformBegin(ftVec2 pos, float degree, float scale, ftColor c)
+{
+	ftRender::transformBegin(pos.x, pos.y, degree, scale, c);
+}
+
+void ftRender::transformBegin(ftSprite *sprite)
+{
+	ftRender::transformBegin(sprite->getPosition(), sprite->getAngle(), sprite->getScale(), sprite->getColor());
 }
 
 void ftRender::transformEnd()
@@ -256,7 +347,34 @@ int data2Texture(unsigned char *bits, int width, int height, int dataType)
 	return gl_texID;
 }
 
-texInfo loadTexture(const char *filename)
+int bitmap2CubeMap(FIBITMAP *dib, int width, int height, int dataType)
+{
+	GLuint gl_texID;
+	GLenum internalFormat = FT2InternalFormat[dataType];
+	GLenum format = FT2Format[dataType];
+	GLenum target[] = {GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_X,
+	                   GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y,
+	                   GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
+	                  };
+	glGenTextures(1, &gl_texID);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, gl_texID);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	for (int i = 0; i < 6; i++) {
+		FIBITMAP *subDib = FreeImage_Copy(dib, height * i, 0, height * (i + 1), height);
+		BYTE *bits;
+		FreeImage_FlipVertical(subDib);
+		bits = FreeImage_GetBits(subDib);
+		glTexImage2D(target[i], 0, internalFormat, height, height, 0, format, GL_UNSIGNED_BYTE, bits);
+		FreeImage_Unload(subDib);
+	}
+	return gl_texID;
+}
+
+texInfo loadTexture(const char *filename, bool cubeMap = false)
 {
 	FREE_IMAGE_FORMAT fif = FIF_UNKNOWN;
 	FIBITMAP *dib;
@@ -268,22 +386,38 @@ texInfo loadTexture(const char *filename)
 	tex.w = 0;
 	tex.h = 0;
 	fif = FreeImage_GetFileType(filename, 0);
+
 	if (fif == FIF_UNKNOWN)
 		fif = FreeImage_GetFIFFromFilename(filename);
-	if (FreeImage_FIFSupportsReading(fif))
+	if (FreeImage_FIFSupportsReading(fif)) {
 		dib = FreeImage_Load(fif, filename, 0);
-	else
+	}
+	else {
+		FT_ERROR("ftRender: \"%s\" Image type unknown!\n", filename);
 		return tex;
+	}
 
 	bits = FreeImage_GetBits(dib);
 	width = FreeImage_GetWidth(dib);
 	height = FreeImage_GetHeight(dib);
 
-	if (fif == FIF_PNG)
-		gl_texID = data2Texture(bits, width, height, FT_BGRA);
-	else
-		gl_texID = data2Texture(bits, width, height, FT_BGR);
-
+	int bpp = FreeImage_GetBPP(dib);
+	if (!cubeMap) {
+		if (bpp == 32) {
+			gl_texID = data2Texture(bits, width, height, FT_BGRA);
+		} else if (bpp == 24) {
+			gl_texID = data2Texture(bits, width, height, FT_BGR);
+		} else if (bpp == 8) {
+			gl_texID = data2Texture(bits, width, height, FT_GRAY);
+		}
+	} else {
+		if (FreeImage_GetBPP(dib) == 32) {
+			gl_texID = bitmap2CubeMap(dib, width, height, FT_BGRA);
+		}
+		else {
+			gl_texID = bitmap2CubeMap(dib, width, height, FT_BGR);
+		}
+	}
 	FreeImage_Unload(dib);
 	tex.id = gl_texID;
 	tex.w = width;
@@ -307,23 +441,27 @@ int ftRender::getPicture(unsigned char *bits, int width, int height, int dataTyp
 	return curPicID++;
 }
 
-int ftRender::getPicture(const char *filename)
+int ftRender::getPicture(const char *filename, bool cubeMap)
 {
 	texInfo texIf;
 	int hash = ftAlgorithm::bkdrHash(filename);
 	if (Hash2PicID[hash] == 0) {
-		texIf = loadTexture(filename);
+		texIf = loadTexture(filename, cubeMap);
 		PicID2TexInfo[curPicID] = texIf;
 		Hash2PicID[hash] = curPicID;
 		return curPicID++;
-	} else
+	} else {
 		return Hash2PicID[hash];
+	}
 }
 
 void ftRender::drawLine(float x1, float y1, float x2, float y2)
 {
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	GLfloat vtx[] = {x1, y1, x2, y2};
 	drawFloat2(vtx, 2, GL_LINES);
+	glDisable(GL_BLEND);
 }
 
 void ftRender::drawLine(const ftVec2 & p1, const ftVec2 & p2)
@@ -331,11 +469,27 @@ void ftRender::drawLine(const ftVec2 & p1, const ftVec2 & p2)
 	ftRender::drawLine(p1.x, p1.y, p2.x, p2.y);
 }
 
+void ftRender::drawLineArrow(const ftVec2 & p1, const ftVec2 & p2, float arrowSize)
+{
+	ftRender::drawLine(p1.x, p1.y, p2.x, p2.y);
+	ftVec2 vec = ftVec2(p2) - ftVec2(p1);
+	ftVec2 vv = vec.getVectorVertical();
+	vec.unitize();
+	vec *= arrowSize * 1.618;
+	vv *= arrowSize;
+	ftVec2 tp = ftVec2(p2) + vv;
+	tp -= vec;
+	drawLine(p2, tp);
+	tp = ftVec2(p2) - vv;
+	tp -= vec;
+	drawLine(p2, tp);
+}
+
 void ftRender::drawQuad(float w, float h)
 {
 	float w2 = w / 2.0f;
 	float h2 = h / 2.0f;
-	GLfloat vtx[] = {-w2, -h2, -w2, h2, w2, h2, w2, -h2};
+	GLfloat vtx[] = {-w2, -h2, w2, -h2, w2, h2, -w2, h2};
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	drawFloat2(vtx, 4, GL_TRIANGLE_FAN);
@@ -374,10 +528,12 @@ void ftRender::drawCircle(float radius)
 
 void ftRender::drawCircleEdge(float radius)
 {
+	glEnable(GL_BLEND);
 	ftRender::transformBegin();
 	ftRender::ftScale(radius);
 	drawFloat2(circle32, 32, GL_LINE_LOOP);
 	ftRender::transformEnd();
+	glDisable(GL_BLEND);
 }
 
 void ftRender::drawShape(ftShape & shape, float angle)
@@ -412,6 +568,7 @@ void ftRender::drawShapeEdge(ftShape & shape, float angle)
 	const float *v = shape.getData();
 	int n = shape.getN();
 
+	glEnable(GL_BLEND);
 	switch (type)
 	{
 	case FT_Circle:
@@ -430,6 +587,7 @@ void ftRender::drawShapeEdge(ftShape & shape, float angle)
 		ftRender::drawQuadEdge(v[0], v[1]);
 		break;
 	}
+	glDisable(GL_BLEND);
 }
 
 ftVec2 ftRender::getPicSize(int picID)
@@ -593,46 +751,66 @@ const float * SubImage::getTexCoor()
 }
 
 //class ftRender::SubImagePool
-std::map<int, SubImage> SubImagePool::getMapFromSip(int pid, const char *sipName)
+std::map<int, int> SubImagePool::getMapFromSip(int pid, const char *sipName)
 {
 	int x, y;
-	int picN;
 	char name[100];
 	int rx, ry, rw, rh;
 	int tmp;
-	std::map<int, SubImage> ans;
+	std::map<int, int> ans;
 	std::FILE *sipF = std::fopen(sipName, "r");
-	if (sipF == NULL) return ans;
+	if (sipF == NULL) {
+		FT_ERROR("ftRender: Loading \"%s\": File not found!\n", sipName);
+		return ans;
+	}
 	tmp = std::fscanf(sipF, "%d %d", &x, &y);
 	tmp = std::fscanf(sipF, "%d", &picN);
+	subImageVec.clear();
 	for (int i = 0; i < picN; i++) {
 		tmp = std::fscanf(sipF, "%s %d %d %d %d", name, &rw, &rh, &rx, &ry);
 		if (tmp == EOF) break;
 		ftRect r(rx, y - ry - rh, rw, rh);
 		int hash = ftAlgorithm::bkdrHash(name);
-		ans[hash] = SubImage(pid, r);
+		SubImage tmpSI = SubImage(pid, r);
+		subImageVec.push_back(tmpSI);
+		ans[hash] = i;
 	}
 	std::fclose(sipF);
 
 	return ans;
 }
 
+SubImagePool::SubImagePool()
+{
+}
+
 SubImagePool::SubImagePool(const char * picName, const char *sipName)
 {
 	picID = ftRender::getPicture(picName);
-	nameHash2SubImage = getMapFromSip(picID, sipName);
+	nameHash2SubImageIndex = getMapFromSip(picID, sipName);
 }
 
 const SubImage & SubImagePool::getImage(const char *imageName)
 {
 	int hash = ftAlgorithm::bkdrHash(imageName);
-	return nameHash2SubImage[hash];
+	return getImageFromIndex(nameHash2SubImageIndex[hash]);
+}
+
+const SubImage & SubImagePool::getImageFromIndex(int index)
+{
+	FT_ASSERT(index >= 0 && index < picN, "getImageFromIndex(): index must in range(picN)");
+	return subImageVec[index];
+}
+
+int SubImagePool::getImageNumber()
+{
+	return picN;
 }
 
 //TODO: complete ftRender::getImage
 SubImage ftRender::getImage(int picID)
 {
-	return SubImage(picID);;
+	return SubImage(picID);
 }
 
 SubImage ftRender::getImage(const char *filename)
@@ -676,21 +854,18 @@ void ftRender::drawImage(SubImage & im)
 	disableTexture2D();
 }
 
-void ftRender::transformBegin(float x, float y, float degree, float scale, ftColor c)
-{
-	ftRender::useColor(c);
-	ftRender::transformBegin();
-	ftRender::ftTranslate(x, y);
-	ftRender::ftRotate(0, 0, degree);
-	ftRender::ftScale(scale);
-}
-
 void ftRender::drawImage(SubImage & im, float x, float y, float degree, float scale, ftColor c)
 {
 	ftRender::transformBegin(x, y, degree, scale, c);
 	ftRender::drawImage(im);
 	ftRender::transformEnd();
 	ftRender::useColor(FT_White);
+}
+
+void ftRender::useBasicShader()
+{
+	basicShader.use();
+	currentShader = &basicShader;
 }
 
 void ftRender::useFFP()
@@ -713,6 +888,12 @@ void Camera::setPosition(float x, float y)
 {
 	this->x = x;
 	this->y = y;
+}
+
+void Camera::setPosition(ftVec2 vec)
+{
+	this->x = vec.x;
+	this->y = vec.y;
 }
 
 void Camera::setPosition(float x, float y, float z)
@@ -797,14 +978,17 @@ void Camera::update()
 
 const ftVec2 Camera::mouseToWorld(const ftVec2 & mPos)
 {
-	float l, b, w2, h2;
-	w2 = W2 / scale;
-	h2 = H2 / scale;
-	l = x - w2;
-	b = y - h2;
 	ftVec2 ans;
-	ans.x = mPos.x / scale + l;
-	ans.y = mPos.y / scale + b;
+	ans.x = (mPos.x - W2) / scale + x;
+	ans.y = (mPos.y - H2) / scale + y;
+	return ans;
+}
+
+const ftVec2 Camera::worldToScreen(const ftVec2 & wCoord)
+{
+	ftVec2 ans;
+	ans.x = (wCoord.x - x) * scale + W2;
+	ans.y = (wCoord.y - y) * scale + H2;
 	return ans;
 }
 
@@ -834,14 +1018,14 @@ GLuint compileShader(const GLchar *shaderStr, GLenum shaderType)
 		GLint length;
 		GLchar *log;
 		if (shaderType == GL_VERTEX_SHADER)
-			std::printf("vertex");
+			FT_OUT("vertex");
 		if (shaderType == GL_FRAGMENT_SHADER)
-			std::printf("fragment");
-		std::printf(" shader compile failed!!!\n");
+			FT_OUT("fragment");
+		FT_OUT(" shader compile failed!!!\n");
 		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
 		log = new GLchar[length];
 		glGetShaderInfoLog(shader, length, &length, log);
-		std::printf("//\n%s//\n\n", log);
+		FT_OUT("//\n%s//\n\n", log);
 		delete [] log;
 		glDeleteShader(shader);
 		return 0;
@@ -897,11 +1081,20 @@ bool ShaderProgram::init()
 	const char *fss = fsFile.getStr();
 	fs = compileShader(fss, GL_FRAGMENT_SHADER);
 
-	//link
 	program = linkShaderProgram(vs, fs);
 
 	vsFile.free();
 	fsFile.free();
+	return true;
+}
+
+bool ShaderProgram::init(const char *vss, const char *fss)
+{
+	vs = compileShader(vss, GL_VERTEX_SHADER);
+	fs = compileShader(fss, GL_FRAGMENT_SHADER);
+
+	program = linkShaderProgram(vs, fs);
+
 	return true;
 }
 
@@ -947,6 +1140,15 @@ void ShaderProgram::setUniform(const char *varName, const ftVec2 & value)
 	}
 }
 
+void ShaderProgram::setTexture(const char *texName, int picID, int texN)
+{
+	texInfo tex = PicID2TexInfo[picID];
+	float texID = tex.id;
+	glActiveTexture(GL_TEXTURE0 + texN);
+	glBindTexture(GL_TEXTURE_2D, texID);
+	glUniform1i(glGetUniformLocation(program, texName), texN);
+}
+
 void ShaderProgram::free()
 {
 	if (currentShader == this) {
@@ -955,4 +1157,65 @@ void ShaderProgram::free()
 	glDeleteProgram(program);
 	vsFile.free();
 	fsFile.free();
+}
+
+//class ftRender::Bitmap
+
+Bitmap::Bitmap()
+{
+	width = 0;
+	height = 0;
+	bits = NULL;
+	type = FT_RGB;
+}
+
+void Bitmap::free()
+{
+        if (bits) {
+                delete [] bits;
+                bits = NULL;
+        }
+}
+
+int Bitmap::getPicture()
+{
+	int res = -1;
+	if (width > 0 && height > 0) {
+		res = ftRender::getPicture(bits, width, height, type);
+	}
+	return res;
+}
+
+Bitmap ftRender::getBitmapFromScreen(int x, int y, int w, int h)
+{
+	Bitmap res;
+	if (w > 0 && h > 0) {
+		res.newImage(w, h, FT_RGBA);
+		glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, res.bits);
+	}
+	return res;
+}
+
+unsigned char Bitmap::getGray(int x, int y)
+{
+        int cy = height - y - 1;
+        return bits[cy * width * 4 + x * 4];
+}
+
+void Bitmap::setGray(int x, int y, unsigned char c)
+{
+       int cy = height - y - 1;
+       for (int i = 0; i < 3; i++) {
+               bits[cy * width * 4 + x * 4 + i] = c;
+       }
+}
+
+void Bitmap::newImage(int w, int h, int type)
+{
+        this->free();
+        bits = new unsigned char [w * h * 4];
+        for (int i = 0; i < w * h * 4; i++) bits[i] = 255;
+        this->width = w;
+        this->height = h;
+        this->type = type;
 }

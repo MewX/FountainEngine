@@ -1,7 +1,9 @@
+#include <fountain/ft_debug.h>
 #include <fountain/ft_data.h>
 #include <fountain/ft_math.h>
 #include <cstdio>
 #include <cstring>
+#include <cstdarg>
 
 namespace fountain {
 
@@ -30,7 +32,7 @@ void ftVec2::move(float x, float y)
 
 float ftVec2::length()
 {
-	return std::pow(x * x + y * y, 0.5);
+	return std::sqrt(x * x + y * y);
 }
 
 float ftVec2::getDegree()
@@ -41,7 +43,7 @@ float ftVec2::getDegree()
 	return d;
 }
 
-const ftVec2 ftVec2::operator-(const ftVec2 & v)
+const ftVec2 ftVec2::operator-(const ftVec2 & v) const
 {
 	return ftVec2(x - v.x, y - v.y);
 }
@@ -52,7 +54,7 @@ void ftVec2::operator-=(const ftVec2 & v)
 	y -= v.y;
 }
 
-const ftVec2 ftVec2::operator+(const ftVec2 & v)
+const ftVec2 ftVec2::operator+(const ftVec2 & v) const
 {
 	return ftVec2(x + v.x, y + v.y);
 }
@@ -63,7 +65,7 @@ void ftVec2::operator+=(const ftVec2 & v)
 	y += v.y;
 }
 
-const ftVec2 ftVec2::operator*(float k)
+const ftVec2 ftVec2::operator*(float k) const
 {
 	return ftVec2(x * k, y * k);
 }
@@ -74,14 +76,32 @@ void ftVec2::operator*=(float k)
 	y *= k;
 }
 
-const ftVec2 ftVec2::operator/(float k)
+const ftVec2 ftVec2::operator/(float k) const
 {
 	return ftVec2(x / k, y / k);
 }
 
-const ftVec2 ftVec2::operator/(const ftVec2 & v)
+const ftVec2 ftVec2::operator/(const ftVec2 & v) const
 {
 	return ftVec2(x / v.x, y / v.y);
+}
+
+void ftVec2::unitize()
+{
+	float l = length();
+	if (l > 0) {
+		x /= l;
+		y /= l;
+	}
+}
+
+const ftVec2 ftVec2::getVectorVertical()
+{
+	ftVec3 v3(x, y, 0);
+	v3 = v3.crossProduct(ftVec3(0, 0, 1));
+	ftVec2 vec = ftVec2(v3.xyz[0], v3.xyz[1]);
+	vec.unitize();
+	return vec;
 }
 
 //class ftVec3
@@ -97,6 +117,57 @@ ftVec3::ftVec3(float x, float y, float z)
 	xyz[0] = x;
 	xyz[1] = y;
 	xyz[2] = z;
+}
+
+float ftVec3::length()
+{
+	return sqrt(xyz[0] * xyz[0] + xyz[1] * xyz[1] + xyz[2] * xyz[2]);
+}
+
+void ftVec3::unitize()
+{
+	float l = length();
+	if (l > 0) {
+		xyz[0] /= l;
+		xyz[1] /= l;
+		xyz[2] /= l;
+	}
+}
+
+void ftVec3::output(float *data)
+{
+	data[0] = xyz[0];
+	data[1] = xyz[1];
+	data[2] = xyz[2];
+}
+
+void ftVec3::operator+=(const ftVec3 & v)
+{
+	xyz[0] += v.xyz[0];
+	xyz[1] += v.xyz[1];
+	xyz[2] += v.xyz[2];
+}
+
+const ftVec3 ftVec3::operator/(float k)
+{
+	ftVec3 res(xyz[0] / k, xyz[1] / k, xyz[2] / k);
+	return res;
+}
+
+const ftVec3 ftVec3::crossProduct(const ftVec3 & v)
+{
+	float rx, ry, rz;
+	rx = xyz[1] * v.xyz[2] - v.xyz[1] * xyz[2];
+	ry = -(xyz[0] * v.xyz[2] - v.xyz[0] * xyz[2]);
+	rz = xyz[0] * v.xyz[1] - v.xyz[0] * xyz[1];
+	return ftVec3(rx, ry, rz);
+}
+
+bool operator<(const ftVec3 & v1, const ftVec3 & v2)
+{
+	for (int i = 0; i < 3; i++)
+		if (v1.xyz[i] != v2.xyz[i]) return v1.xyz[i] < v2.xyz[i];
+	return false;
 }
 
 //class ftRect
@@ -266,7 +337,19 @@ std::vector<ftVec2> ftRect::collideSegment(const ftVec2 & pa, const ftVec2 & pb)
 	float k, b;
 	float rX, rY;
 	if (kv.x == 0.0f) {
-		//TODO: finish this function
+		if (pa.x >= x && pa.x <= x + w) {
+			float y1, y2;
+			if (kv.y > 0) {
+				y1 = pa.y;
+				y2 = pb.y;
+			}
+			else {
+				y1 = pb.y;
+				y2 = pa.y;
+			}
+			if (y >= y1 && y <= y2) prev.push_back(ftVec2(pa.x, y));
+			if (y + h >= y1 && y + h <= y2) prev.push_back(ftVec2(pa.x, y + h));
+		}
 	} else {
 		k = kv.y / kv.x;
 		b = pa.y - k * pa.x;
@@ -289,10 +372,29 @@ std::vector<ftVec2> ftRect::collideSegment(const ftVec2 & pa, const ftVec2 & pb)
 		tmp = prev[i];
 		if (collidePoint(tmp)) {
 			if ((tmp.x - pa.x) * (tmp.x - pb.x) <= 0 &&
-				(tmp.y - pa.y) * (tmp.y - pb.y) <= 0) v.push_back(prev[i]);
+			        (tmp.y - pa.y) * (tmp.y - pb.y) <= 0) v.push_back(prev[i]);
 		}
 	}
 	return v;
+}
+
+ftVec2 ftRect::distanceToPoint(const ftVec2 & p)
+{
+	ftVec2 tp = p;
+	ftVec2 ans(0, 0);
+	ftVec2 size = getSize();
+	size = size / 2;
+	ftVec2 center = getCenter();
+	ans = tp - center;
+	if (FT_ABS(ans.x) > size.x) {
+		ans.x -= FT_ABS(ans.x) / ans.x * size.x;
+	}
+	else ans.x = 0;
+	if (FT_ABS(ans.y) > size.y) {
+		ans.y -= FT_ABS(ans.y) / ans.y * size.y;
+	}
+	else ans.y = 0;
+	return ans;
 }
 
 //class ftShape
@@ -422,6 +524,16 @@ void ftSprite::setAngle(float agl)
 float ftSprite::getAngle()
 {
 	return angle;
+}
+
+void ftSprite::setScale(float scl)
+{
+	scale = scl;
+}
+
+float ftSprite::getScale()
+{
+	return scale;
 }
 
 void ftSprite::setRectSize(const ftVec2 & rts)
@@ -626,6 +738,9 @@ float ftColor::getAlpha()
 ftFile::ftFile()
 {
 	str = NULL;
+	fp = NULL;
+	name[0] = '\0';
+	state = '\0';
 }
 
 ftFile::~ftFile()
@@ -636,6 +751,8 @@ ftFile::~ftFile()
 ftFile::ftFile(const char *filename)
 {
 	str = NULL;
+	fp = NULL;
+	state = '\0';
 	load(filename);
 }
 
@@ -652,29 +769,80 @@ void ftFile::free()
 	}
 }
 
+void ftFile::open(const char *filename)
+{
+	std::strcpy(name, filename);
+	state = 'a';
+}
+
+bool ftFile::exist()
+{
+	bool ans = false;
+	if (state == 'a') {
+		fp = std::fopen(name, "r");
+		if (fp != NULL) {
+			ans = true;
+			close();
+		}
+	}
+	return ans;
+}
+
+void ftFile::close()
+{
+	if (fp != NULL) {
+		std::fclose(fp);
+		fp = NULL;
+		if (state == 'r' || state == 'w') state = 'a';
+	}
+}
+
+void ftFile::read(const char *fmt, ...)
+{
+	if (!state) return;
+	if (state != 'r') {
+		close();
+		fp = std::fopen(name, "r");
+		FT_ASSERT(fp != NULL, "ftFile::read fail!");
+		state = 'r';
+	}
+	std::va_list args;
+	va_start(args, fmt);
+	std::vfscanf(fp, fmt, args);
+}
+
+void ftFile::write(const char *fmt, ...)
+{
+	if (!state) return;
+	if (state != 'w') {
+		close();
+		fp = std::fopen(name, "w");
+		state = 'w';
+	}
+	std::va_list args;
+	va_start(args, fmt);
+	std::vfprintf(fp, fmt, args);
+}
+
 bool ftFile::load(const char *filename)
 {
 	free();
 	std::strcpy(name, filename);
-	FILE *f = std::fopen(filename, "r");
+	std::FILE *f = std::fopen(filename, "rb");
 	int length;
-	int index = 0;
 	char tmpChar;
 	if (f != NULL) {
 		std::fseek(f, 0, SEEK_END);
 		length = std::ftell(f);
 		str = new char[length + 1];
-		std::fseek(f, 0, SEEK_SET);
-		while (std::fscanf(f, "%c", &tmpChar) != EOF) {
-			str[index] = tmpChar;
-			index++;
-		}
-		str[index] = '\0';
+		std::rewind(f);
+		std::fread(str, 1, length, f);
+		str[length] = '\0';
 		std::fclose(f);
-		std::printf("%s: size %d\n", filename, index);
+		FT_OUT("%s: size %d\n", filename, length);
 		return true;
 	} else {
-		std::printf("Open \"%s\" error!\n", filename);
+		FT_ERROR("ftData: Loading \"%s\": File not found!\n", filename);
 		return false;
 	}
 }

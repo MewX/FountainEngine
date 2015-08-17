@@ -54,14 +54,16 @@ public:
 	void move(float x, float y);
 	float length();
 	float getDegree();
-	const ftVec2 operator-(const ftVec2 & v);
+	const ftVec2 operator-(const ftVec2 & v) const;
 	void operator-=(const ftVec2 & v);
-	const ftVec2 operator+(const ftVec2 & v);
+	const ftVec2 operator+(const ftVec2 & v) const;
 	void operator+=(const ftVec2 & v);
-	const ftVec2 operator*(float k);
+	const ftVec2 operator*(float k) const;
 	void operator*=(float k);
-	const ftVec2 operator/(float k);
-	const ftVec2 operator/(const ftVec2 & v);
+	const ftVec2 operator/(float k) const;
+	const ftVec2 operator/(const ftVec2 & v) const;
+	void unitize();
+	const ftVec2 getVectorVertical();
 };
 
 
@@ -71,7 +73,15 @@ public:
 	float xyz[3];
 	ftVec3();
 	ftVec3(float x, float y, float z);
+	float length();
+	void unitize();
+	void output(float *data);
+	void operator+=(const ftVec3 & v);
+	const ftVec3 operator/(float k);
+	const ftVec3 crossProduct(const ftVec3 & v);
 };
+
+bool operator<(const ftVec3 & v1, const ftVec3 & v2);
 
 class ftRect
 {
@@ -109,12 +119,13 @@ public:
 	bool collidePoint(const ftVec2 & p);
 	bool collideRect(const ftRect & r);
 	std::vector<ftVec2> collideSegment(const ftVec2 & pa, const ftVec2 & pb);
+	ftVec2 distanceToPoint(const ftVec2 & p);
 };
 
 class ftShape
 {
 private:
-	float data[32];
+	float data[64];
 	float r;
 	int n;
 	bool loop;
@@ -178,6 +189,8 @@ public:
 	ftVec2 getPosition();
 	void setAngle(float agl);
 	float getAngle();
+	void setScale(float scl);
+	float getScale();
 	void setRectSize(const ftVec2 & rts);
 	void setRectSize(float x, float y);
 	ftVec2 getRectSize();
@@ -199,12 +212,19 @@ class ftFile
 private:
 	char name[260];
 	char *str;
+	char state;
+	std::FILE* fp;
 public:
 	ftFile();
 	~ftFile();
 	ftFile(const char *filename);
 	bool isLoad();
 	void free();
+	void open(const char *filename);
+	bool exist();
+	void close();
+	void read(const char *fmt, ...);
+	void write(const char *fmt, ...);
 	bool load(const char *filename);
 	bool reload();
 	const char* getStr();

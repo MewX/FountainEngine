@@ -133,10 +133,12 @@ WinMain(HINSTANCE hInstance,
 		GetCursorPos(&mousePos);
 		ScreenToClient(hwnd, &mousePos);
 		fountain::sysMouse.update(mousePos.x, mousePos.y);
+		ftRender::frameBegin();
 		ftRender::clearColorDepthBuffer();
 		ftRender::transformBegin();
 		fountain::singleFrame();
 		ftRender::transformEnd();
+		ftRender::frameEnd();
 		SwapBuffers(hDC);
 	}
 	fountain::closeAllSystem();
@@ -201,6 +203,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			PostQuitMessage(0);
 			break;
 		default:
+			if (wParam > 0 && wParam < 256) {
+				fountain::sysKeyboard.asciiIn = wParam;
+			}
 			fountain::sysKeyboard.setState(keymap
 			                               [wParam &
 			                                FT_KEYBOARDSTATE_SIZE],

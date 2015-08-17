@@ -2,6 +2,7 @@
 #define GLEW_STATIC
 #include <GL/glew.h>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 using ft3DModel::ObjModel;
@@ -21,7 +22,8 @@ void ft3DModel::close()
 
 ObjModel::ObjModel()
 {
-	vtx = NULL;
+	glGenBuffers(1, &vboV);
+	glGenBuffers(1, &vboN);
 }
 
 ObjModel::ObjModel(const char *fileName)
@@ -31,34 +33,34 @@ ObjModel::ObjModel(const char *fileName)
 
 ObjModel::~ObjModel()
 {
-	if (vtx != NULL) {
-		delete [] vtx;
-		vtx = NULL;
-	}
+	glDeleteBuffers(1, &vboV);
+	glDeleteBuffers(1, &vboN);
 }
 
-void ObjModel::loadObj(const char *fileName)
+void ObjModel::loadObj(const char *fileName, bool smooth)
 {
-	char tmp;
+	GLfloat (*vtx)[3] = NULL;
+	GLfloat (*vtxN)[3] = NULL;
+	char tmp[10];
 	int tmpInt;
-	std::vector<ftVec3> v;
-	std::vector<ftVec3Index> p;
-	ftVec3 tmpV;
-	ftVec3Index tmpP;
+	std::vector<ftVec3> v, vn;
+	std::vector<ftVec3Index> p, n;
+	ftVec3 tmpV, tmpVN;
+	ftVec3Index tmpP, tmpN;
 	v.clear();
+	vn.clear();
 	p.clear();
+	n.clear();
 	v.push_back(tmpV);
+	vn.push_back(tmpVN);
 	std::FILE *objFile = std::fopen(fileName, "r");
 	vecN = 1;
 	indexN = 0;
 	if (objFile != NULL) {
 		for (;;) {
-			while (tmpInt =
-			            std::fscanf(objFile, "%c", &tmp), tmpInt != EOF
-			        && tmp != '\n') ;
-			if (std::fscanf(objFile, "%c", &tmp) == EOF)
+			if (std::fscanf(objFile, "%s", tmp) == EOF)
 				break;
-			if (tmp == 'v') {
+			if (std::strcmp(tmp, "v") == 0) {
 				for (int i = 0; i < 3; i++) {
 					tmpInt =
 					    std::fscanf(objFile, "%f",
@@ -69,50 +71,92 @@ void ObjModel::loadObj(const char *fileName)
 				}
 				v.push_back(tmpV);
 				vecN++;
-			} else {
-				if (tmp == 'f') {
+			} else if (std::strcmp(tmp, "vn") == 0) {
+				for (int i = 0; i < 3; i++) {
 					tmpInt =
-					    std::fscanf(objFile, "%d%d%d",
-					                &tmpP.i[0],
-					                &tmpP.i[1],
-					                &tmpP.i[2]);
-					if (tmpInt != 3)
-						continue;
-					p.push_back(tmpP);
-					indexN++;
+					    std::fscanf(objFile, "%f",
+					                &tmpVN.
+					                xyz[i]);
+					if (tmpInt != 1)
+						break;
+				}
+				vn.push_back(tmpVN);
+			} else if (std::strcmp(tmp, "f") == 0) {
+				for (int i = 0; i < 3; i++) {
+					tmpInt = std::fscanf(objFile, "%d//%d", &tmpP.i[i], &tmpN.i[i]);
+				}
+				p.push_back(tmpP);
+				n.push_back(tmpN);
+				indexN++;
+			}
+			while (tmpInt =
+			            std::fscanf(objFile, "%c", tmp), tmpInt != EOF
+			        && tmp[0] != '\n');
+		}
+		std::fclose(objFile);
+		vtx = new GLfloat[indexN * 3][3];
+		vtxN = new GLfloat[indexN * 3][3];
+		std::map<ftVec3, ftVec3> mapVertex2Normal;
+		std::map<ftVec3, int> mapVertex2NormalNum;
+		for (int tri = 0; tri < indexN; tri++) {
+			for (int vti = 0; vti < 3; vti++) {
+				ftVec3 vertex = v[p[tri].i[vti]];
+				ftVec3 normal = vn[n[tri].i[vti]];
+				vertex.output(vtx[tri * 3 + vti]);
+				if (smooth) {
+					mapVertex2Normal[vertex] += normal;
+					mapVertex2NormalNum[vertex]++;
+				} else normal.output(vtxN[tri * 3 + vti]);
+			}
+		}
+		if (smooth) {
+			for (int tri = 0; tri < indexN; tri++) {
+				for (int vti = 0; vti < 3; vti++) {
+					ftVec3 vertex = v[p[tri].i[vti]];
+					ftVec3 normal = mapVertex2Normal[vertex] / mapVertex2NormalNum[vertex];
+					normal.output(vtxN[tri * 3 + vti]);
 				}
 			}
 		}
-		std::fclose(objFile);
-		vtx = new float[indexN * 3][3];
-		for (int tri = 0; tri < indexN; tri++) {
-			for (int vti = 0; vti < 3; vti++) {
-				for (int coori = 0; coori < 3; coori++)
-					vtx[tri * 3 + vti][coori] = v[p[tri].i[vti]].xyz[coori];
-			}
-		}
 	} else {
-		std::printf("Open \"%s\" error!\n", fileName);
+		FT_OUT("Open \"%s\" error!\n", fileName);
+	}
+
+	glBindBuffer(GL_ARRAY_BUFFER, vboV);
+	glBufferData(GL_ARRAY_BUFFER, indexN * 9 * sizeof(GLfloat), vtx, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, vboN);
+	glBufferData(GL_ARRAY_BUFFER, indexN * 9 * sizeof(GLfloat), vtxN, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	if (vtx != NULL) {
+		delete [] vtx;
+		vtx = NULL;
+	}
+	if (vtxN != NULL) {
+		delete [] vtxN;
+		vtxN = NULL;
 	}
 }
 
 void ObjModel::render()
 {
 	glEnable(GL_DEPTH_TEST);
-	glColor3f(0.0f, 0.0f, 0.0f);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
 	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, 0, vtx);
+	glEnableClientState(GL_NORMAL_ARRAY);
+
+	glBindBuffer(GL_ARRAY_BUFFER, vboV);
+	glVertexPointer(3, GL_FLOAT, 0, 0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, vboN);
+	glNormalPointer(GL_FLOAT, 0, 0);
+
 	glDrawArrays(GL_TRIANGLES, 0, indexN * 3);
+
 	glDisableClientState(GL_VERTEX_ARRAY);
-	glColor3f(1.0f, 1.0f, 1.0f);
-	glLineWidth(2.0f);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glVertexPointer(3, GL_FLOAT, 0, vtx);
-	glDrawArrays(GL_TRIANGLES, 0, indexN * 3);
-	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_NORMAL_ARRAY);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
 	glDisable(GL_DEPTH_TEST);
-	glLineWidth(1.0f);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }

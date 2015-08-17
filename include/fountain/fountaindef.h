@@ -1,8 +1,8 @@
 #ifndef _FOUNTAINDEF_H_
 #define _FOUNTAINDEF_H_
 
-#define FOUNTAIN_VERSION "0.052"
-#define FOUNTAIN_VERSION_NUM 0.052
+#define FOUNTAIN_VERSION "0.070"
+#define FOUNTAIN_VERSION_NUM 0.070
 
 #define FT_LButton 1
 #define FT_MButton 2
@@ -111,6 +111,8 @@
 #include <fountain/ft_type.h>
 #include <fountain/ft_audio.h>
 #include <fountain/ft_ui.h>
+#include <fountain/ft_anime.h>
+#include <fountain/ft_debug.h>
 
 namespace fountain {
 
@@ -129,6 +131,9 @@ void singleFrame();
 
 ftVec2 getWinSize();
 ftRect getWinRect();
+ftTime::Clock* getCurSceneClock();
+ftRender::Camera* getCurSceneCamera();
+float getCurSceneDeltaT();
 
 }
 

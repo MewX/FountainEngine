@@ -1,4 +1,5 @@
 #include <fountain/fountaindef.h>
+#include "STG.h"
 
 extern const char *str[];
 extern const char *strEn[];
@@ -9,6 +10,7 @@ public:
 	SButton();
 	int id;
 	void update();
+	void setId(int idd);
 };
 
 class HWButton : public SButton
@@ -18,10 +20,16 @@ public:
 	void click();
 };
 
+class MyShaderProgram : public ftRender::ShaderProgram
+{
+public:
+	void update();
+};
+
 class HelloWorld : public ftScene::Scene
 {
 private:
-	container<HWButton, 10> butCon;
+	container<HWButton, 20> butCon;
 
 public:
 	void init();
@@ -55,9 +63,10 @@ public:
 class ModelScene : public TestScene
 {
 private:
-	float y;
+	float rx, ry;
 	ft3DModel::ObjModel x;
 	ftRender::Camera modelCamera;
+	MyShaderProgram lightSP;
 public:
 	void customInit();
 	void customUpdate();
@@ -70,6 +79,8 @@ private:
 	ftPhysics::World world;
 	ftPhysics::Body ground, ball;
 	ftPhysics::Body card[25];
+	ftPhysics::Body tmp[101];
+	int tmpn;
 	SButton debugDraw;
 	bool ddFlag;
 public:
@@ -103,35 +114,28 @@ public:
 	void customDraw();
 };
 
-class UIScene : public TestScene
+class AnimeScene : public TestScene
 {
 private:
-	float sz;
-	ftUI::NineSprite nineS;
+	ftRender::SubImagePool animeTest;
+	ftAnime::FrameAnime anime;
 public:
 	void customInit();
 	void customUpdate();
 	void customDraw();
 };
 
-class MyShaderProgram : public ftRender::ShaderProgram
-{
-public:
-	void update()
-	{
-		ftVec2 mp = fountain::sysMouse.getPos();
-		this->setUniform("time", fountain::mainClock.getTotalT());
-		this->setUniform("resolution", fountain::getWinSize());
-		this->setUniform("mouse", mp);
-	}
-};
-
 class ShaderScene : public TestScene
 {
 private:
-	MyShaderProgram spa, spb, spc, spd;
-	SButton ba, bb, bc, bd;
+	int shaderNumber;
+	MyShaderProgram sp[7];
+	SButton b[7];
 	int use;
+	float scale;
+	ftVec2 observePos;
+	ft3DModel::ObjModel teaPot;
+	float rx, ry;
 public:
 	void customInit();
 	void customUpdate();
@@ -154,7 +158,20 @@ class TimeScene : public TestScene
 {
 private:
 	char s[20];
+	char mss[20];
 	ftUI::Button fps;
+	ftUI::Button mspf;
+public:
+	void customInit();
+	void customUpdate();
+	void customDraw();
+};
+
+class FragmentScene : public TestScene
+{
+private:
+	STG::MainCharactor nt;
+	STG::BulletCon enemyBulletCon;
 public:
 	void customInit();
 	void customUpdate();

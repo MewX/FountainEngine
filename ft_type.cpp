@@ -44,10 +44,10 @@ charInfo::charInfo(const ftVec2 & ct, const ftVec2 & adv)
 	advance = adv;
 }
 
-void copyBitmapToBufferData(FT_Bitmap &bitmap, unsigned char *expanded_data, int imgW, int w, int h, int row, int col)
+void copyBitmapToBufferData(FT_Bitmap &bitmap, unsigned char *expanded_data, int imgW, unsigned w, unsigned h, int row, int col)
 {
-	for(int j = 0; j < h; j++) {
-		for(int i = 0; i < w; i++) {
+	for(unsigned j = 0; j < h; j++) {
+		for(unsigned i = 0; i < w; i++) {
 			int r = row * h + j;
 			int c = col * w + i;
 			expanded_data[2 * (r * imgW + c)] = 255;
@@ -75,6 +75,7 @@ bool FontMan::loadFont(const char *fontname)
 {
 	int error = FT_New_Face(library, fontname, 0, &face);
 	if (error) {
+		FT_ERROR("ftType: \"%s\" loading error!\n", fontname);
 		return false;
 	}
 	useKerning = FT_HAS_KERNING(face);
@@ -116,7 +117,7 @@ void FontMan::genStringTable(const char *str, int h)
 		FT_Load_Char(face, v[ci], FT_LOAD_RENDER);
 		FT_Bitmap& bitmap = slot->bitmap;
 		ftVec2 center(slot->bitmap_left + bitmap.width / 2.0f,
-		              slot->bitmap_top - bitmap.rows + bitmap.rows / 2.0f);
+		              slot->bitmap_top - bitmap.rows / 2.0f);
 		ftVec2 advance(slot->advance.x >> 6, slot->advance.y >> 6);
 		charInfo ch(center, advance);
 		unicode2charInfo[v[ci]] = ch;
@@ -142,6 +143,11 @@ int FontMan::drawString(const std::vector<unsigned long> & s)
 	FT_Int previous = 0;
 	FT_UInt glyphIndex;
 	for (unsigned i = 0; i < s.size(); i++) {
+		if (s[i] == '\n') {
+			pen.y -= getFontSize();
+			pen.x = 0;
+			continue;
+		}
 		charInfo ch = unicode2charInfo[s[i]];
 		ftRender::SubImage im = unicode2SubImage[s[i]];
 		ftRender::transformBegin();
